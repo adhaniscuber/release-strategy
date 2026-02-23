@@ -106,16 +106,18 @@ jobs:
         env:
           PREV: ${{ steps.next_version.outputs.prev }}
           NEXT: ${{ steps.next_version.outputs.next }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
+          FORMAT="- [\`%h\`](${SERVER_URL}/${REPO}/commit/%H) %s"
+
           # Ambil commit messages sejak tag terakhir
           if git tag | grep -q "^${PREV}$"; then
-            LOGS=$(git log "${PREV}..HEAD" --oneline --no-merges)
+            git log "${PREV}..HEAD" --no-merges --format="${FORMAT}" > /tmp/changelog.txt
           else
-            LOGS=$(git log --oneline --no-merges -20)
+            git log --no-merges -20 --format="${FORMAT}" > /tmp/changelog.txt
           fi
 
-          # Simpan ke file untuk menghindari masalah special character
-          echo "$LOGS" > /tmp/changelog.txt
           echo "✅ Changelog generated"
 
       - name: Create and push tag
@@ -167,9 +169,7 @@ jobs:
             echo ""
             echo "### Changes since ${PREV}"
             echo ""
-            echo "\`\`\`"
             cat /tmp/changelog.txt
-            echo "\`\`\`"
             echo ""
             echo "---"
             echo "> 🤖 Release dibuat otomatis via GitHub Actions"
