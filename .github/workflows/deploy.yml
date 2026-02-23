@@ -1,0 +1,59 @@
+# ============================================================
+# deploy.yml — Reusable workflow
+# Dipanggil oleh continuous.yml, release.yml
+# ============================================================
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      ref:
+        description: 'Branch atau tag yang di-deploy (opsional)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Get version info
+        id: info
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "untagged")
+          COMMIT=$(git rev-parse --short HEAD)
+          BRANCH=${GITHUB_REF_NAME}
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+
+      - name: Deploy
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  🚀 Deploying to: ${{ inputs.environment }}"
+          echo "  🏷️  Tag    : ${{ steps.info.outputs.tag }}"
+          echo "  🔀 Branch : ${{ steps.info.outputs.branch }}"
+          echo "  📝 Commit : ${{ steps.info.outputs.commit }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # ─────────────────────────────────────────────────
+          # Ganti bagian ini dengan deployment script kamu
+          # Contoh:
+          #   - AWS: aws ecs update-service ...
+          #   - GCP: gcloud run deploy ...
+          #   - K8s: kubectl set image ...
+          #   - SSH: ssh user@server 'docker pull && restart'
+          # ─────────────────────────────────────────────────
+          echo "✅ Deploy to ${{ inputs.environment }} success"

@@ -1,0 +1,44 @@
+# ============================================================
+# release.yml — Release Deployment
+# Trigger : push tag dengan format vX.Y.Z (dari release branch)
+# Deploy  : dev → staging (approval: any engineer)
+#                → production (approval: specific user)
+# Tujuan  : release resmi ke production
+# ============================================================
+name: Release Deployment
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  deploy-dev:
+    name: Deploy → Development
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: development
+      ref: ${{ github.ref }}
+
+  deploy-staging:
+    name: Deploy → Staging
+    needs: deploy-dev
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      ref: ${{ github.ref }}
+    # Approval: any engineer
+    # → Setting di GitHub: Settings > Environments > staging
+    #   Required reviewers: tambahkan team/semua engineer
+
+  deploy-production:
+    name: Deploy → Production
+    needs: deploy-staging
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      ref: ${{ github.ref }}
+    # Approval: specific user (tech lead / cto)
+    # → Setting di GitHub: Settings > Environments > production
+    #   Required reviewers: tambahkan specific user saja
+    #   Wait timer: 5 minutes (opsional)

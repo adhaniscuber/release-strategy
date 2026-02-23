@@ -1,0 +1,169 @@
+# ============================================================
+# create-release.yml — Create Release Tag
+# Trigger : manual (workflow_dispatch)
+# Input   : release_branch + bump_type
+# Output  : tag baru yang validated + GitHub Release
+#           → otomatis trigger release.yml
+# ============================================================
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: 'Release branch (contoh: release/v1.5.x). Kosongkan untuk pakai main.'
+        required: false
+        default: 'main'
+        type: string
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch   # bug fix     → v1.5.2 ke v1.5.3
+          - minor   # fitur baru  → v1.5.x ke v1.6.0
+          - major   # breaking    → v1.x.x ke v2.0.0
+
+jobs:
+  create-release:
+    name: Create Release Tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_branch || 'main' }}
+          fetch-depth: 0
+
+      - name: Validate release branch name
+        env:
+          BRANCH: ${{ inputs.release_branch || 'main' }}
+        run: |
+          BRANCH="${BRANCH:-main}"
+          if [[ "$BRANCH" == "main" ]]; then
+            echo "✅ Using default branch: main"
+          elif [[ ! "$BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
+            echo "❌ Branch name tidak valid: ${BRANCH}"
+            echo "   Format yang benar: release/v1.5.x atau kosongkan untuk main"
+            exit 1
+          else
+            echo "✅ Branch name valid: ${BRANCH}"
+          fi
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          # Ambil semua tag, urutkan semver, ambil yang terbaru
+          LATEST=$(git tag --sort=-v:refname | grep '^v[0-9]' | head -1)
+          LATEST=${LATEST:-v0.0.0}
+          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+          echo "📌 Latest tag: ${LATEST}"
+
+      - name: Calculate next version
+        id: next_version
+        env:
+          LATEST: ${{ steps.latest_tag.outputs.latest }}
+          BUMP: ${{ inputs.bump_type }}
+        run: |
+          # Strip 'v' prefix
+          VERSION=${LATEST#v}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+          PATCH=$(echo $VERSION | cut -d. -f3)
+
+          case "$BUMP" in
+            major) NEXT="v$((MAJOR+1)).0.0" ;;
+            minor) NEXT="v${MAJOR}.$((MINOR+1)).0" ;;
+            patch) NEXT="v${MAJOR}.${MINOR}.$((PATCH+1))" ;;
+          esac
+
+          echo "next=${NEXT}" >> $GITHUB_OUTPUT
+          echo "prev=${LATEST}" >> $GITHUB_OUTPUT
+          echo "🔢 ${LATEST} → ${NEXT} (${BUMP} bump)"
+
+      - name: Validate tag does not exist
+        env:
+          NEXT: ${{ steps.next_version.outputs.next }}
+        run: |
+          if git tag | grep -q "^${NEXT}$"; then
+            echo "❌ Tag ${NEXT} sudah ada! Tidak bisa lanjut."
+            echo "   Gunakan bump type yang lain atau cek release branch."
+            exit 1
+          fi
+          echo "✅ Tag ${NEXT} belum ada, aman dibuat."
+
+      - name: Generate changelog
+        id: changelog
+        env:
+          PREV: ${{ steps.next_version.outputs.prev }}
+          NEXT: ${{ steps.next_version.outputs.next }}
+        run: |
+          # Ambil commit messages sejak tag terakhir
+          if git tag | grep -q "^${PREV}$"; then
+            LOGS=$(git log "${PREV}..HEAD" --oneline --no-merges)
+          else
+            LOGS=$(git log --oneline --no-merges -20)
+          fi
+
+          # Simpan ke file untuk menghindari masalah special character
+          echo "$LOGS" > /tmp/changelog.txt
+          echo "✅ Changelog generated"
+
+      - name: Create and push tag
+        env:
+          NEXT: ${{ steps.next_version.outputs.next }}
+          BRANCH: ${{ inputs.release_branch || 'main' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag "$NEXT"
+          git push origin "$NEXT"
+
+          echo "🏷️  Tag ${NEXT} berhasil dibuat dari branch ${BRANCH}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.next_version.outputs.next }}
+          PREV: ${{ steps.next_version.outputs.prev }}
+          BRANCH: ${{ inputs.release_branch || 'main' }}
+          BUMP: ${{ inputs.bump_type }}
+        run: |
+          BUMP_EMOJI=""
+          case "$BUMP" in
+            major) BUMP_EMOJI="🔴 MAJOR" ;;
+            minor) BUMP_EMOJI="🔵 MINOR" ;;
+            patch) BUMP_EMOJI="🟢 PATCH" ;;
+          esac
+
+          # Tulis release notes ke file untuk menghindari masalah quoting
+          cat > /tmp/release-notes.md << EOF
+## ${BUMP_EMOJI} Release ${NEXT}
+
+**Branch:** \`${BRANCH}\`
+**Previous:** \`${PREV}\` → **Current:** \`${NEXT}\`
+
+---
+
+### Changes since ${PREV}
+
+\`\`\`
+$(cat /tmp/changelog.txt)
+\`\`\`
+
+---
+> 🤖 Release dibuat otomatis via GitHub Actions
+EOF
+
+          gh release create "$NEXT" \
+            --title "${NEXT}" \
+            --target "$BRANCH" \
+            --notes-file /tmp/release-notes.md
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  ✅ Release ${NEXT} berhasil dibuat!"
+          echo "  🚀 release.yml akan otomatis trigger deploy"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
