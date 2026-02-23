@@ -23,6 +23,11 @@ on:
           - patch   # bug fix     → v1.5.2 ke v1.5.3
           - minor   # fitur baru  → v1.5.x ke v1.6.0
           - major   # breaking    → v1.x.x ke v2.0.0
+      notes:
+        description: 'Release notes (opsional, ditampilkan di deskripsi release)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   create-release:
@@ -35,6 +40,7 @@ jobs:
       - name: Checkout release branch
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.PAT_TOKEN }}
           ref: ${{ inputs.release_branch || 'main' }}
           fetch-depth: 0
 
@@ -132,6 +138,7 @@ jobs:
           PREV: ${{ steps.next_version.outputs.prev }}
           BRANCH: ${{ inputs.release_branch || 'main' }}
           BUMP: ${{ inputs.bump_type }}
+          NOTES: ${{ inputs.notes }}
         run: |
           BUMP_EMOJI=""
           case "$BUMP" in
@@ -146,8 +153,17 @@ jobs:
             echo ""
             echo "**Branch:** \`${BRANCH}\`"
             echo "**Previous:** \`${PREV}\` → **Current:** \`${NEXT}\`"
+            echo "**Triggered by:** @${{ github.actor }}"
             echo ""
             echo "---"
+            if [[ -n "${NOTES}" ]]; then
+              echo ""
+              echo "### Notes"
+              echo ""
+              echo "${NOTES}"
+              echo ""
+              echo "---"
+            fi
             echo ""
             echo "### Changes since ${PREV}"
             echo ""
