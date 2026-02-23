@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/adhan/catalyst/release-strategy-repo remote set-url:*)"
+    ]
+  }
+}

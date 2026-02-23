@@ -139,23 +139,23 @@ jobs:
           esac
 
           # Tulis release notes ke file untuk menghindari masalah quoting
-          cat > /tmp/release-notes.md << EOF
-## ${BUMP_EMOJI} Release ${NEXT}
-
-**Branch:** \`${BRANCH}\`
-**Previous:** \`${PREV}\` → **Current:** \`${NEXT}\`
-
----
-
-### Changes since ${PREV}
-
-\`\`\`
-$(cat /tmp/changelog.txt)
-\`\`\`
-
----
-> 🤖 Release dibuat otomatis via GitHub Actions
-EOF
+          {
+            echo "## ${BUMP_EMOJI} Release ${NEXT}"
+            echo ""
+            echo "**Branch:** \`${BRANCH}\`"
+            echo "**Previous:** \`${PREV}\` → **Current:** \`${NEXT}\`"
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Changes since ${PREV}"
+            echo ""
+            echo "\`\`\`"
+            cat /tmp/changelog.txt
+            echo "\`\`\`"
+            echo ""
+            echo "---"
+            echo "> 🤖 Release dibuat otomatis via GitHub Actions"
+          } > /tmp/release-notes.md
 
           gh release create "$NEXT" \
             --title "${NEXT}" \

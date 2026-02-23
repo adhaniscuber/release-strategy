@@ -7,9 +7,8 @@ GitHub Flow + Release Branch dengan SemVer per change.
 ```
 .github/workflows/
 ├── deploy.yml          # Reusable — dipanggil workflow lain
-├── continuous.yml      # Push ke main → dev + staging otomatis
 ├── release.yml         # Push tag → dev → staging → prod
-├── create-release.yml  # Manual — buat tag dari release branch
+├── create-release.yml  # Manual — buat tag + GitHub Release
 └── cleanup.yml         # Auto — hapus release branch lama
 ```
 
@@ -27,7 +26,6 @@ Buat 3 environments di **Settings → Environments**:
 
 ```
 1. Developer merge PR ke main
-   → continuous.yml otomatis deploy ke dev + staging
 
 2. Code freeze → buat release branch
    git checkout main
@@ -37,7 +35,7 @@ Buat 3 environments di **Settings → Environments**:
 3. QA final di release branch
 
 4. Siap rilis → Actions → Create Release
-   release_branch : release/v1.5.x
+   release_branch : release/v1.5.x  (kosongkan = pakai main)
    bump_type      : minor
    → otomatis buat tag v1.5.0
    → otomatis trigger release.yml
@@ -69,7 +67,7 @@ Buat 3 environments di **Settings → Environments**:
 | `minor` | Fitur baru | v1.5.x → v1.6.0 |
 | `major` | Breaking change | v1.x.x → v2.0.0 |
 
-Tag hanya dibuat dari **release branch**, bukan dari main langsung.
+Tag bisa dibuat dari **release branch** maupun **main** (default jika `release_branch` dikosongkan).
 Setelah sprint release, main lanjut ke minor berikutnya (v1.5.x → v1.6.x) agar v1.5.x reserved untuk hotfix di release branch.
 
 ## Branch Lifecycle
