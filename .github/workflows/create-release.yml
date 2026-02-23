@@ -11,22 +11,22 @@ on:
   workflow_dispatch:
     inputs:
       release_branch:
-        description: 'Release branch (contoh: release/v1.5.x). Kosongkan untuk pakai main.'
+        description: "Release branch (contoh: release/v1.5.x). Kosongkan untuk pakai main."
         required: false
-        default: 'main'
+        default: "main"
         type: string
       bump_type:
-        description: 'Version bump type'
+        description: "Version bump type"
         required: true
         type: choice
         options:
-          - patch   # bug fix     → v1.5.2 ke v1.5.3
-          - minor   # fitur baru  → v1.5.x ke v1.6.0
-          - major   # breaking    → v1.x.x ke v2.0.0
+          - patch # bug fix     → v1.5.2 ke v1.5.3
+          - minor # fitur baru  → v1.5.x ke v1.6.0
+          - major # breaking    → v1.x.x ke v2.0.0
       notes:
-        description: 'Release notes (opsional, ditampilkan di deskripsi release)'
+        description: "Release notes (opsional, ditampilkan di deskripsi release)"
         required: false
-        default: ''
+        default: ""
         type: string
 
 jobs:
