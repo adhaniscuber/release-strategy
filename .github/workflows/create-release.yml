@@ -28,6 +28,8 @@ jobs:
   create-release:
     name: Create Release Tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout release branch
@@ -115,8 +117,8 @@ jobs:
           NEXT: ${{ steps.next_version.outputs.next }}
           BRANCH: ${{ inputs.release_branch || 'main' }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
           git tag "$NEXT"
           git push origin "$NEXT"
