@@ -10,13 +10,21 @@ name: Create Release
 on:
   workflow_dispatch:
     inputs:
+      release_type:
+        description: "Type: regular (dev→stg→prod) or hotfix (ONLY Production)"
+        required: false
+        default: "regular"
+        type: choice
+        options:
+          - regular
+          - hotfix
       release_branch:
-        description: "Release branch (contoh: release/v1.5.x). Kosongkan untuk pakai main. Hotfix: kosongkan untuk auto-detect latest release branch."
+        description: "Branch: main or release/vX.X.X). Leave empty to use main. Hotfix: leave empty to auto-detect latest release branch."
         required: false
         default: "main"
         type: string
       bump_type:
-        description: "Version bump type (hotfix selalu patch)"
+        description: "Version bump - (Hotfix always patch)"
         required: true
         type: choice
         options:
@@ -24,18 +32,10 @@ on:
           - minor # fitur baru  → v1.5.x ke v1.6.0
           - major # breaking    → v1.x.x ke v2.0.0
       notes:
-        description: "Release notes (opsional, ditampilkan di deskripsi release)"
+        description: "Notes (optional)"
         required: false
         default: ""
         type: string
-      release_type:
-        description: "Tipe release: regular (dev→stg→prod) atau hotfix (langsung prod, skip dev & stg)"
-        required: false
-        default: "regular"
-        type: choice
-        options:
-          - regular
-          - hotfix
 
 jobs:
   create-release:
