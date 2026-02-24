@@ -15,7 +15,7 @@ on:
         default: "main"
         type: string
       bump_type:
-        description: "Version bump type for release branch"
+        description: "Version bump - hanya berlaku jika latest tag adalah real (non-preview). Jika latest adalah preview, minor otomatis dari tag."
         required: true
         type: choice
         default: minor
@@ -41,29 +41,42 @@ jobs:
       - name: Get latest tag
         id: latest_tag
         run: |
+          # Include preview tags — base branch name dari latest di main (termasuk preview)
           LATEST=$(git tag --sort=-v:refname | grep '^v[0-9]' | head -1)
           LATEST=${LATEST:-v0.0.0}
+          # Strip -preview untuk kalkulasi semver
+          BASE="${LATEST%-preview}"
           echo "latest=${LATEST}" >> $GITHUB_OUTPUT
-          echo "📌 Latest tag: ${LATEST}"
+          echo "base=${BASE}" >> $GITHUB_OUTPUT
+          echo "📌 Latest tag  : ${LATEST}"
+          echo "📐 Base semver : ${BASE}"
 
       - name: Calculate release branch name
         id: branch_version
         env:
+          BASE: ${{ steps.latest_tag.outputs.base }}
           LATEST: ${{ steps.latest_tag.outputs.latest }}
           BUMP: ${{ inputs.bump_type }}
         run: |
-          VERSION=${LATEST#v}
+          VERSION=${BASE#v}
           MAJOR=$(echo $VERSION | cut -d. -f1)
           MINOR=$(echo $VERSION | cut -d. -f2)
 
-          case "$BUMP" in
-            major) BRANCH_VERSION="v$((MAJOR+1)).0.x" ;;
-            minor) BRANCH_VERSION="v${MAJOR}.$((MINOR+1)).x" ;;
-          esac
+          if [[ "$LATEST" == *"-preview" ]]; then
+            # Preview tag → minor sudah fix, tidak perlu bump
+            BRANCH_VERSION="v${MAJOR}.${MINOR}.x"
+            echo "🔢 ${LATEST} → release/${BRANCH_VERSION} (minor dari preview, bump_type diabaikan)"
+          else
+            # Real tag → apply bump_type
+            case "$BUMP" in
+              major) BRANCH_VERSION="v$((MAJOR+1)).0.x" ;;
+              minor) BRANCH_VERSION="v${MAJOR}.$((MINOR+1)).x" ;;
+            esac
+            echo "🔢 ${LATEST} → release/${BRANCH_VERSION} (${BUMP} bump)"
+          fi
 
           BRANCH_NAME="release/${BRANCH_VERSION}"
           echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-          echo "🔢 ${LATEST} → ${BRANCH_NAME} (${BUMP} bump)"
 
       - name: Validate branch does not exist
         env:

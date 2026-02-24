@@ -24,7 +24,7 @@ on:
         default: "main"
         type: string
       bump_type:
-        description: "Version bump - (Hotfix always patch)"
+        description: "Version bump - hanya berlaku untuk main. Release branch & hotfix otomatis dari branch name."
         required: true
         type: choice
         options:
@@ -109,55 +109,66 @@ jobs:
         env:
           RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
           ACTUAL_BRANCH: ${{ steps.resolve_branch.outputs.actual_branch }}
+          IS_RELEASE_BRANCH: ${{ steps.resolve_branch.outputs.is_release_branch }}
         run: |
-          if [[ "$RELEASE_TYPE" == "hotfix" ]]; then
-            # Cari latest tag untuk minor version dari release branch
-            # release/v1.7.x → v1.7
+          if [[ "$RELEASE_TYPE" == "hotfix" || "$IS_RELEASE_BRANCH" == "true" ]]; then
+            # Scope ke minor version dari branch name (release/v1.7.x → v1.7)
             MINOR_PREFIX=$(echo "$ACTUAL_BRANCH" | grep -oE 'v[0-9]+\.[0-9]+')
-            LATEST=$(git tag --sort=-v:refname | grep "^${MINOR_PREFIX}\." | grep -v '\-preview' | head -1)
-            LATEST=${LATEST:-v0.0.0}
-            echo "🔍 Latest tag for ${MINOR_PREFIX}.x: ${LATEST}"
+            PREV=$(git tag --sort=-v:refname | grep "^${MINOR_PREFIX}\." | grep -v '\-preview' | head -1)
+            BASE="$PREV"
+            echo "🔍 Latest for ${MINOR_PREFIX}.x: ${PREV:-none}"
           else
-            # Exclude -preview tags dari perhitungan semver
-            LATEST=$(git tag --sort=-v:refname | grep '^v[0-9]' | grep -v '\-preview' | head -1)
-            LATEST=${LATEST:-v0.0.0}
-            echo "📌 Latest tag: ${LATEST}"
+            # Main: include preview tags agar bisa increment dari preview sebelumnya
+            PREV=$(git tag --sort=-v:refname | grep '^v[0-9]' | head -1)
+            PREV=${PREV:-v0.0.0}
+            # Strip -preview untuk kalkulasi semver
+            BASE="${PREV%-preview}"
+            echo "📌 Latest (incl. preview): ${PREV} → base: ${BASE}"
           fi
-          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+
+          echo "prev=${PREV:-v0.0.0}" >> $GITHUB_OUTPUT
+          echo "base=${BASE:-v0.0.0}" >> $GITHUB_OUTPUT
 
       - name: Calculate next version
         id: next_version
         env:
-          LATEST: ${{ steps.latest_tag.outputs.latest }}
+          BASE: ${{ steps.latest_tag.outputs.base }}
+          PREV: ${{ steps.latest_tag.outputs.prev }}
           BUMP: ${{ inputs.bump_type }}
           RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
           IS_RELEASE_BRANCH: ${{ steps.resolve_branch.outputs.is_release_branch }}
+          ACTUAL_BRANCH: ${{ steps.resolve_branch.outputs.actual_branch }}
         run: |
-          # Hotfix selalu patch
-          if [[ "$RELEASE_TYPE" == "hotfix" ]]; then
-            BUMP="patch"
-          fi
+          if [[ "$IS_RELEASE_BRANCH" == "true" || "$RELEASE_TYPE" == "hotfix" ]]; then
+            # Versi dari branch name → selalu patch (bump_type diabaikan)
+            MINOR_PREFIX=$(echo "$ACTUAL_BRANCH" | grep -oE 'v[0-9]+\.[0-9]+')
+            if [[ -z "$BASE" || "$BASE" == "v0.0.0" ]]; then
+              # Belum ada tag untuk minor ini → pertama kali
+              NEXT="${MINOR_PREFIX}.0"
+            else
+              PATCH=$(echo ${BASE#v} | cut -d. -f3)
+              NEXT="${MINOR_PREFIX}.$((PATCH+1))"
+            fi
+            echo "🔢 ${PREV:-none} → ${NEXT} (auto patch from branch)"
+          else
+            # Main: bump sesuai pilihan, append -preview
+            VERSION=${BASE#v}
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
 
-          # Strip 'v' prefix
-          VERSION=${LATEST#v}
-          MAJOR=$(echo $VERSION | cut -d. -f1)
-          MINOR=$(echo $VERSION | cut -d. -f2)
-          PATCH=$(echo $VERSION | cut -d. -f3)
+            case "$BUMP" in
+              major) NEXT="v$((MAJOR+1)).0.0" ;;
+              minor) NEXT="v${MAJOR}.$((MINOR+1)).0" ;;
+              patch) NEXT="v${MAJOR}.${MINOR}.$((PATCH+1))" ;;
+            esac
 
-          case "$BUMP" in
-            major) NEXT="v$((MAJOR+1)).0.0" ;;
-            minor) NEXT="v${MAJOR}.$((MINOR+1)).0" ;;
-            patch) NEXT="v${MAJOR}.${MINOR}.$((PATCH+1))" ;;
-          esac
-
-          # Append -preview untuk deploy dari main (bukan release branch, bukan hotfix)
-          if [[ "$IS_RELEASE_BRANCH" == "false" && "$RELEASE_TYPE" != "hotfix" ]]; then
             NEXT="${NEXT}-preview"
+            echo "🔢 ${PREV} → ${NEXT} (${BUMP} bump)"
           fi
 
           echo "next=${NEXT}" >> $GITHUB_OUTPUT
-          echo "prev=${LATEST}" >> $GITHUB_OUTPUT
-          echo "🔢 ${LATEST} → ${NEXT} (${BUMP} bump)"
+          echo "prev=${PREV:-v0.0.0}" >> $GITHUB_OUTPUT
 
       - name: Validate tag does not exist
         env:

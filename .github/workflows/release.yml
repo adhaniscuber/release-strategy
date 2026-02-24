@@ -40,7 +40,12 @@ jobs:
   deploy-staging:
     name: Deploy → Staging
     needs: deploy-dev
-    if: always() && inputs.release_type == 'regular' && needs.deploy-dev.result == 'success'
+    if: |
+      always() &&
+      (
+        (inputs.release_type == 'regular' && needs.deploy-dev.result == 'success') ||
+        (inputs.release_type == 'hotfix')
+      )
     uses: ./.github/workflows/deploy.yml
     with:
       environment: staging
