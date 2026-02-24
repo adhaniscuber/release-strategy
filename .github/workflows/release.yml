@@ -1,8 +1,9 @@
 # ============================================================
 # release.yml — Release Deployment
 # Trigger : dipanggil oleh create-release.yml (workflow_dispatch)
-# Deploy  : regular → dev → staging (approval) → production (approval)
-#           hotfix  → langsung production (approval), skip dev & staging
+# Deploy  : main           → dev + staging only (no prod)
+#           release/v*.*.x → dev + staging + production
+#           hotfix          → langsung production saja
 # ============================================================
 name: Release Deployment
 
@@ -12,6 +13,11 @@ on:
       tag:
         description: "Tag yang akan di-deploy (contoh: v1.5.0)"
         required: true
+        type: string
+      branch:
+        description: "Source branch (main atau release/v*.*.x)"
+        required: false
+        default: "main"
         type: string
       release_type:
         description: "Tipe release"
@@ -47,6 +53,7 @@ jobs:
     needs: [deploy-dev, deploy-staging]
     if: |
       always() &&
+      inputs.branch != 'main' &&
       (needs.deploy-dev.result == 'success' || needs.deploy-dev.result == 'skipped') &&
       (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     uses: ./.github/workflows/deploy.yml
