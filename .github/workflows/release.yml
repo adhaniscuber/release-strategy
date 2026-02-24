@@ -1,44 +1,58 @@
 # ============================================================
 # release.yml — Release Deployment
-# Trigger : push tag dengan format vX.Y.Z (dari release branch)
-# Deploy  : dev → staging (approval: any engineer)
-#                → production (approval: specific user)
-# Tujuan  : release resmi ke production
+# Trigger : dipanggil oleh create-release.yml (workflow_dispatch)
+# Deploy  : regular → dev → staging (approval) → production (approval)
+#           hotfix  → langsung production (approval), skip dev & staging
 # ============================================================
 name: Release Deployment
 
 on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag yang akan di-deploy (contoh: v1.5.0)"
+        required: true
+        type: string
+      release_type:
+        description: "Tipe release"
+        required: false
+        default: "regular"
+        type: choice
+        options:
+          - regular
+          - hotfix
 
 jobs:
   deploy-dev:
     name: Deploy → Development
+    if: inputs.release_type == 'regular'
     uses: ./.github/workflows/deploy.yml
     with:
       environment: development
-      ref: ${{ github.ref }}
+      ref: ${{ inputs.tag }}
 
   deploy-staging:
     name: Deploy → Staging
     needs: deploy-dev
+    if: always() && inputs.release_type == 'regular' && needs.deploy-dev.result == 'success'
     uses: ./.github/workflows/deploy.yml
     with:
       environment: staging
-      ref: ${{ github.ref }}
+      ref: ${{ inputs.tag }}
     # Approval: any engineer
-    # → Setting di GitHub: Settings > Environments > staging
-    #   Required reviewers: tambahkan team/semua engineer
+    # → Settings > Environments > staging > Required reviewers
 
   deploy-production:
     name: Deploy → Production
-    needs: deploy-staging
+    needs: [deploy-dev, deploy-staging]
+    if: |
+      always() &&
+      (needs.deploy-dev.result == 'success' || needs.deploy-dev.result == 'skipped') &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     uses: ./.github/workflows/deploy.yml
     with:
       environment: production
-      ref: ${{ github.ref }}
+      ref: ${{ inputs.tag }}
     # Approval: specific user (tech lead / cto)
-    # → Setting di GitHub: Settings > Environments > production
-    #   Required reviewers: tambahkan specific user saja
+    # → Settings > Environments > production > Required reviewers
     #   Wait timer: 5 minutes (opsional)

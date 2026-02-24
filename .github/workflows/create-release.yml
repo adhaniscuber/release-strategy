@@ -1,9 +1,9 @@
 # ============================================================
 # create-release.yml — Create Release Tag
 # Trigger : manual (workflow_dispatch)
-# Input   : release_branch + bump_type
+# Input   : release_branch + bump_type + notes + release_type
 # Output  : tag baru yang validated + GitHub Release
-#           → otomatis trigger release.yml
+#           → eksplisit trigger release.yml dengan release_type
 # ============================================================
 name: Create Release
 
@@ -11,12 +11,12 @@ on:
   workflow_dispatch:
     inputs:
       release_branch:
-        description: "Release branch (contoh: release/v1.5.x). Kosongkan untuk pakai main."
+        description: "Release branch (contoh: release/v1.5.x). Kosongkan untuk pakai main. Hotfix: kosongkan untuk auto-detect latest release branch."
         required: false
         default: "main"
         type: string
       bump_type:
-        description: "Version bump type"
+        description: "Version bump type (hotfix selalu patch)"
         required: true
         type: choice
         options:
@@ -28,6 +28,14 @@ on:
         required: false
         default: ""
         type: string
+      release_type:
+        description: "Tipe release: regular (dev→stg→prod) atau hotfix (langsung prod, skip dev & stg)"
+        required: false
+        default: "regular"
+        type: choice
+        options:
+          - regular
+          - hotfix
 
 jobs:
   create-release:
@@ -37,43 +45,90 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout release branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT_TOKEN }}
           ref: ${{ inputs.release_branch || 'main' }}
           fetch-depth: 0
 
-      - name: Validate release branch name
+      - name: Resolve branch
+        id: resolve_branch
         env:
           BRANCH: ${{ inputs.release_branch || 'main' }}
+          RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
         run: |
           BRANCH="${BRANCH:-main}"
-          if [[ "$BRANCH" == "main" ]]; then
-            echo "✅ Using default branch: main"
-          elif [[ ! "$BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
-            echo "❌ Branch name tidak valid: ${BRANCH}"
-            echo "   Format yang benar: release/v1.5.x atau kosongkan untuk main"
-            exit 1
+
+          if [[ "$RELEASE_TYPE" == "hotfix" ]]; then
+            if [[ "$BRANCH" == "main" ]]; then
+              # Auto-detect latest release branch
+              LATEST_RELEASE_BRANCH=$(git branch -r \
+                | grep 'origin/release/' \
+                | sed 's/.*origin\///' \
+                | sort -t'/' -k2 -V \
+                | tail -1)
+
+              if [[ -z "$LATEST_RELEASE_BRANCH" ]]; then
+                echo "❌ Tidak ada release branch ditemukan untuk hotfix"
+                exit 1
+              fi
+
+              echo "🔍 Auto-detected hotfix branch: ${LATEST_RELEASE_BRANCH}"
+              BRANCH="$LATEST_RELEASE_BRANCH"
+            elif [[ ! "$BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
+              echo "❌ Branch name tidak valid untuk hotfix: ${BRANCH}"
+              echo "   Format yang benar: release/v1.5.x atau kosongkan untuk auto-detect"
+              exit 1
+            fi
           else
-            echo "✅ Branch name valid: ${BRANCH}"
+            if [[ "$BRANCH" == "main" ]]; then
+              echo "✅ Using default branch: main"
+            elif [[ ! "$BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
+              echo "❌ Branch name tidak valid: ${BRANCH}"
+              echo "   Format yang benar: release/v1.5.x atau kosongkan untuk main"
+              exit 1
+            else
+              echo "✅ Branch name valid: ${BRANCH}"
+            fi
           fi
+
+          echo "actual_branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "✅ Branch resolved: ${BRANCH}"
+          git checkout "$BRANCH"
 
       - name: Get latest tag
         id: latest_tag
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
+          ACTUAL_BRANCH: ${{ steps.resolve_branch.outputs.actual_branch }}
         run: |
-          # Ambil semua tag, urutkan semver, ambil yang terbaru
-          LATEST=$(git tag --sort=-v:refname | grep '^v[0-9]' | head -1)
-          LATEST=${LATEST:-v0.0.0}
+          if [[ "$RELEASE_TYPE" == "hotfix" ]]; then
+            # Cari latest tag untuk minor version dari release branch
+            # release/v1.7.x → v1.7
+            MINOR_PREFIX=$(echo "$ACTUAL_BRANCH" | grep -oE 'v[0-9]+\.[0-9]+')
+            LATEST=$(git tag --sort=-v:refname | grep "^${MINOR_PREFIX}\." | head -1)
+            LATEST=${LATEST:-v0.0.0}
+            echo "🔍 Latest tag for ${MINOR_PREFIX}.x: ${LATEST}"
+          else
+            LATEST=$(git tag --sort=-v:refname | grep '^v[0-9]' | head -1)
+            LATEST=${LATEST:-v0.0.0}
+            echo "📌 Latest tag: ${LATEST}"
+          fi
           echo "latest=${LATEST}" >> $GITHUB_OUTPUT
-          echo "📌 Latest tag: ${LATEST}"
 
       - name: Calculate next version
         id: next_version
         env:
           LATEST: ${{ steps.latest_tag.outputs.latest }}
           BUMP: ${{ inputs.bump_type }}
+          RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
         run: |
+          # Hotfix selalu patch
+          if [[ "$RELEASE_TYPE" == "hotfix" ]]; then
+            BUMP="patch"
+          fi
+
           # Strip 'v' prefix
           VERSION=${LATEST#v}
           MAJOR=$(echo $VERSION | cut -d. -f1)
@@ -123,7 +178,7 @@ jobs:
       - name: Create and push tag
         env:
           NEXT: ${{ steps.next_version.outputs.next }}
-          BRANCH: ${{ inputs.release_branch || 'main' }}
+          BRANCH: ${{ steps.resolve_branch.outputs.actual_branch }}
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
@@ -138,9 +193,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT: ${{ steps.next_version.outputs.next }}
           PREV: ${{ steps.next_version.outputs.prev }}
-          BRANCH: ${{ inputs.release_branch || 'main' }}
+          BRANCH: ${{ steps.resolve_branch.outputs.actual_branch }}
           BUMP: ${{ inputs.bump_type }}
           NOTES: ${{ inputs.notes }}
+          RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
         run: |
           BUMP_EMOJI=""
           case "$BUMP" in
@@ -148,6 +204,11 @@ jobs:
             minor) BUMP_EMOJI="🔵 MINOR" ;;
             patch) BUMP_EMOJI="🟢 PATCH" ;;
           esac
+
+          # Hotfix override
+          if [[ "$RELEASE_TYPE" == "hotfix" ]]; then
+            BUMP_EMOJI="🚑 HOTFIX"
+          fi
 
           # Tulis release notes ke file untuk menghindari masalah quoting
           {
@@ -183,5 +244,20 @@ jobs:
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "  ✅ Release ${NEXT} berhasil dibuat!"
-          echo "  🚀 release.yml akan otomatis trigger deploy"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Trigger deployment
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          NEXT: ${{ steps.next_version.outputs.next }}
+          RELEASE_TYPE: ${{ inputs.release_type || 'regular' }}
+        run: |
+          gh workflow run release.yml \
+            --ref main \
+            --field tag="$NEXT" \
+            --field release_type="$RELEASE_TYPE"
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  🚀 Triggered release.yml → ${NEXT} (${RELEASE_TYPE})"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
